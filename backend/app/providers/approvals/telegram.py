@@ -383,6 +383,47 @@ class TelegramApprovalProvider(ApprovalProvider):
         except Exception:
             return False
 
+    async def send_export_notification(self, project_id: UUID, export_path: str) -> bool:
+        """Envia notificação de que o pacote de exportação foi criado."""
+        if not self._started or not self._bot:
+            return False
+
+        chat_id = list(self._allowed_chat_ids)[0]
+        message = (
+            f"📦 <b>Pacote de Publicação Pronto!</b>\n\n"
+            f"<b>Projeto:</b> <code>{project_id}</code>\n"
+            f"<b>Exportado para:</b> <code>{export_path}</code>\n\n"
+            f"<b>Arquivos incluídos:</b>\n"
+            f"• video.mp4 — Vídeo final (MP4 9:16)\n"
+            f"• thumbnail.jpg — Capa do vídeo\n"
+            f"• caption.txt — Legenda + hashtags prontas\n"
+            f"• metadata.json — Metadados completos\n"
+            f"• INSTRUCTIONS.txt — Passo a passo\n\n"
+            f"<b>Próximos passos:</b>\n"
+            f"1. Abra a pasta de exportação no seu computador\n"
+            f"2. Transfira o vídeo para o celular\n"
+            f"3. Publique no TikTok seguindo as instruções\n"
+            f"4. Marque a opção 'Conteúdo gerado por IA' no TikTok"
+        )
+
+        try:
+            await self._bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.HTML,
+            )
+            logger.info("Notificação de exportação enviada", extra={
+                "project_id": str(project_id),
+                "export_path": export_path,
+            })
+            return True
+        except Exception as e:
+            logger.error("Erro ao enviar notificação de exportação", extra={
+                "project_id": str(project_id),
+                "error": str(e),
+            })
+            return False
+
     async def close(self) -> None:
         """Libera recursos."""
         await self.stop()

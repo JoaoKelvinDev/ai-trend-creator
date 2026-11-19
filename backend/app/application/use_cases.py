@@ -986,12 +986,78 @@ async def _request_approval_async(project_id: UUID) -> ApprovalResult:
     factory = get_provider_factory()
     approval_provider = factory.get_approval_provider()
 
+    from backend.app.core.config import get_settings
+    from backend.app.db.models import MediaAsset, MediaAssetKind
+
+    # ─── Buscar dados reais do projeto ───
+    video_path: Path | None = None
+    thumbnail_path: Path | None = None
+    caption = ""
+    hashtags: list[str] = []
+    title = "Vídeo"
+    niche = "geral"
+    sources_summary = ""
+
     async with get_db_context() as db:
         project = await db.get(VideoProject, project_id)
         if not project:
             raise ValueError(f"Projeto {project_id} não encontrado")
 
-        # Criar solicitação de aprovação
+        # Buscar vídeo renderizado
+        exports_dir = Path(get_settings().LOCAL_STORAGE_ROOT) / "exports"
+
+        # Tentar encontrar via MediaAsset
+        result = await db.execute(
+            select(MediaAsset).where(
+                MediaAsset.sha256 == project.video_hash,
+                MediaAsset.kind == MediaAssetKind.VIDEO_CLIP,
+            )
+        )
+        video_asset = result.scalar_one_or_none()
+        if video_asset and video_asset.uri:
+            video_path = Path(video_asset.uri)
+        else:
+            # Fallback: buscar no diretório de exports
+            video_files = sorted(exports_dir.glob("render_*.mp4"), key=lambda p: p.stat().st_mtime)
+            if video_files:
+                video_path = video_files[-1]
+
+        # Buscar thumbnail
+        result = await db.execute(
+            select(MediaAsset).where(
+                MediaAsset.owner_project_id == project_id,
+                MediaAsset.kind == MediaAssetKind.THUMBNAIL,
+            )
+        )
+        thumb_asset = result.scalar_one_or_none()
+        if thumb_asset and thumb_asset.uri:
+            thumbnail_path = Path(thumb_asset.uri)
+        else:
+            thumb_files = sorted(exports_dir.glob("thumb_*.jpg"), key=lambda p: p.stat().st_mtime)
+            if thumb_files:
+                thumbnail_path = thumb_files[-1]
+
+        # Buscar script para legenda e título
+        result = await db.execute(
+            select(Script).where(Script.project_id == project_id)
+            .order_by(Script.created_at.desc())
+        )
+        script_model = result.scalars().first()
+
+        if script_model:
+            outline = script_model.outline_json or {}
+            caption = outline.get("angle", "") or script_model.script_text[:500]
+            hashtags = outline.get("hashtags", [])
+            title = outline.get("hook", "Vídeo")[:150]
+
+        # Buscar nicho do cluster
+        if project.candidate and project.candidate.cluster:
+            cluster = project.candidate.cluster
+            sources_summary = f"Cluster: {cluster.title}"
+            if cluster.niche:
+                niche = cluster.niche.slug
+
+        # Criar solicitação de aprovação no banco
         approval_id = uuid4()
         from backend.app.db.models import ApprovalRequest
         approval = ApprovalRequest(
@@ -1002,35 +1068,65 @@ async def _request_approval_async(project_id: UUID) -> ApprovalResult:
             status="pending",
         )
         db.add(approval)
-
         project.state = VideoState.PENDING_APPROVAL.value
         await db.commit()
 
-        # Enviar para aprovação (mock aprova automaticamente)
-        from backend.app.providers.approvals.base import ApprovalRequest as ApprovalReq
-        # TODO: Montar request real com video_path, thumbnail, caption, etc.
+    # ─── Enviar para aprovação ───
+    from backend.app.providers.approvals.base import ApprovalRequest as ApprovalReq
 
-        # Simular decisão automática no mock
-        await approval_provider.send_for_approval(ApprovalReq(
-            approval_id=approval_id,
-            project_id=project_id,
-            revision=project.revision,
-            video_path="/mock/video.mp4",
-            thumbnail_path=None,
-            title="Título Mock",
-            niche="tecnologia",
-            duration_seconds=30.0,
-            caption="Caption mock #hashtag",
-            hashtags=["#hashtag"],
-            sources_summary="Fonte mock",
-            license_warnings=[],
-            trace_id="mock_trace",
-        ))
+    sent = await approval_provider.send_for_approval(ApprovalReq(
+        approval_id=approval_id,
+        project_id=project_id,
+        revision=project.revision,
+        video_path=video_path or Path("/nonexistent"),
+        thumbnail_path=thumbnail_path,
+        title=title,
+        niche=niche,
+        duration_seconds=project.target_duration_s,
+        caption=caption,
+        hashtags=hashtags,
+        sources_summary=sources_summary or "N/A",
+        license_warnings=[],
+        trace_id=str(project_id),
+    ))
 
-        decision = await approval_provider.wait_for_decision(approval_id, timeout_seconds=10)
+    if not sent:
+        logger.error("Falha ao enviar solicitação de aprovação", extra={"project_id": str(project_id)})
+        async with get_db_context() as db:
+            project = await db.get(VideoProject, project_id)
+            if project:
+                project.state = VideoState.QUALITY_CHECK.value
+                await db.commit()
+        raise RuntimeError("Falha ao enviar para aprovação")
+
+    # ─── Aguardar decisão ───
+    decision = await approval_provider.wait_for_decision(approval_id, timeout_seconds=3600)
+
+    async with get_db_context() as db:
+        project = await db.get(VideoProject, project_id)
+        if not project:
+            raise ValueError(f"Projeto {project_id} não encontrado")
 
         if decision and decision.action == "approve":
             project.state = VideoState.APPROVED.value
+            await db.commit()
+
+            # ─── Etapa 7: Exportar pacote e notificar ───
+            try:
+                export_result = await _export_package_async(project_id)
+                # Enviar notificação de exportação via Telegram
+                if hasattr(approval_provider, 'send_export_notification'):
+                    await approval_provider.send_export_notification(project_id, export_result.export_path)
+                logger.info("Vídeo aprovado e exportado", extra={
+                    "project_id": str(project_id),
+                    "export_path": export_result.export_path,
+                })
+            except Exception as e:
+                logger.error("Erro ao exportar após aprovação", extra={
+                    "project_id": str(project_id),
+                    "error": str(e),
+                })
+
         elif decision and decision.action == "reject":
             project.state = VideoState.REJECTED.value
         elif decision and decision.action == "request_revision":
@@ -1038,7 +1134,7 @@ async def _request_approval_async(project_id: UUID) -> ApprovalResult:
 
         await db.commit()
 
-        return ApprovalResult(approval_id=approval_id)
+    return ApprovalResult(approval_id=approval_id)
 
 
 def export_package_use_case(project_id: UUID) -> ExportResult:
@@ -1051,33 +1147,113 @@ async def _export_package_async(project_id: UUID) -> ExportResult:
     factory = get_provider_factory()
     publisher = factory.get_publisher()
 
+    from backend.app.core.config import get_settings
+    from backend.app.db.models import MediaAsset, MediaAssetKind
+
+    # ─── Buscar dados reais ───
+    video_path: Path | None = None
+    thumbnail_path: Path | None = None
+    caption = ""
+    hashtags: list[str] = []
+
     async with get_db_context() as db:
         project = await db.get(VideoProject, project_id)
         if not project:
             raise ValueError(f"Projeto {project_id} não encontrado")
 
-        # TODO: Montar package real
-        from backend.app.providers.publishing.base import PublicationPackage
-        package = PublicationPackage(
-            project_id=project_id,
-            revision=project.revision,
-            video_path="/mock/video.mp4",
-            thumbnail_path=None,
-            caption="Caption mock",
-            hashtags=["#mock"],
-            privacy_settings={},
-            export_dir=factory.get_asset_store()._root / "exports" / str(project_id),
-            metadata={},
+        # Buscar vídeo
+        exports_dir = Path(get_settings().LOCAL_STORAGE_ROOT) / "exports"
+
+        result = await db.execute(
+            select(MediaAsset).where(
+                MediaAsset.sha256 == project.video_hash,
+                MediaAsset.kind == MediaAssetKind.VIDEO_CLIP,
+            )
         )
-
-        result = await publisher.prepare_package(package)
-
-        if result.success:
-            project.state = VideoState.READY_FOR_MANUAL_POST.value
-            await db.commit()
-            return ExportResult(export_path=result.export_path or "")
+        video_asset = result.scalar_one_or_none()
+        if video_asset and video_asset.uri:
+            video_path = Path(video_asset.uri)
         else:
-            raise RuntimeError(f"Falha na exportação: {result.error}")
+            video_files = sorted(exports_dir.glob("render_*.mp4"), key=lambda p: p.stat().st_mtime)
+            if video_files:
+                video_path = video_files[-1]
+
+        # Buscar thumbnail
+        result = await db.execute(
+            select(MediaAsset).where(
+                MediaAsset.owner_project_id == project_id,
+                MediaAsset.kind == MediaAssetKind.THUMBNAIL,
+            )
+        )
+        thumb_asset = result.scalar_one_or_none()
+        if thumb_asset and thumb_asset.uri:
+            thumbnail_path = Path(thumb_asset.uri)
+        else:
+            thumb_files = sorted(exports_dir.glob("thumb_*.jpg"), key=lambda p: p.stat().st_mtime)
+            if thumb_files:
+                thumbnail_path = thumb_files[-1]
+
+        # Buscar legenda do script
+        result = await db.execute(
+            select(Script).where(Script.project_id == project_id)
+            .order_by(Script.created_at.desc())
+        )
+        script_model = result.scalars().first()
+
+        if script_model:
+            outline = script_model.outline_json or {}
+            caption = outline.get("angle", "") or script_model.script_text[:500]
+            hashtags = outline.get("hashtags", [])
+
+    if not video_path or not video_path.exists():
+        raise ValueError(f"Arquivo de vídeo não encontrado para exportação: {project_id}")
+
+    # ─── Criar pacote de publicação ───
+    from backend.app.providers.publishing.base import PublicationPackage
+
+    export_dir = Path(get_settings().LOCAL_STORAGE_ROOT) / "exports" / str(project_id)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    package = PublicationPackage(
+        project_id=project_id,
+        revision=project.revision,
+        video_path=video_path,
+        thumbnail_path=thumbnail_path,
+        caption=caption,
+        hashtags=hashtags,
+        privacy_settings={},
+        export_dir=export_dir,
+        metadata={
+            "video_hash": project.video_hash,
+            "target_duration_s": project.target_duration_s,
+        },
+    )
+
+    result = await publisher.prepare_package(package)
+
+    if result.success:
+        async with get_db_context() as db:
+            project = await db.get(VideoProject, project_id)
+            if project:
+                project.state = VideoState.READY_FOR_MANUAL_POST.value
+                await db.commit()
+
+            # Registrar job de publicação
+            from backend.app.db.models import PublicationJob
+            pub_job = PublicationJob(
+                project_id=project_id,
+                revision=project.revision,
+                destination="tiktok",
+                mode="assisted",
+                status="exported",
+                exported_path=result.export_path,
+            )
+            db.add(pub_job)
+            await db.commit()
+
+        return ExportResult(export_path=result.export_path or "")
+    else:
+        raise RuntimeError(f"Falha na exportação: {result.error}")
 
 
 def run_daily_pipeline_use_case() -> DailyPipelineResult:

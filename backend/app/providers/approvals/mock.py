@@ -40,7 +40,7 @@ class MockApprovalProvider(ApprovalProvider):
             return False
 
         self._pending[request.approval_id] = request
-        self._events[request.aproval_id] = asyncio.Event()
+        self._events[request.approval_id] = asyncio.Event()
 
         # Simular decisão assíncrona
         asyncio.create_task(self._auto_decide(request.approval_id))
@@ -95,6 +95,14 @@ class MockApprovalProvider(ApprovalProvider):
 
     async def health_check(self) -> bool:
         return not self._should_fail
+
+    async def send_export_notification(self, project_id: UUID, export_path: str) -> bool:
+        """Simula envio de notificação de exportação."""
+        logger.info("Mock: notificação de exportação", extra={
+            "project_id": str(project_id),
+            "export_path": export_path,
+        })
+        return True
 
     async def close(self) -> None:
         pass

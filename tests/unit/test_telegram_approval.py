@@ -250,6 +250,30 @@ class TestTelegramApprovalProvider:
         assert provider._is_allowed(123456789, -999999999999) is False
         assert provider._is_allowed(999999999, -999999999999) is False
 
+    @pytest.mark.asyncio
+    async def test_send_export_notification_success(self, provider):
+        """Testa envio de notificação de exportação."""
+        project_id = uuid4()
+        provider._started = True
+        mock_bot = AsyncMock()
+        mock_bot.send_message = AsyncMock()
+        provider._bot = mock_bot
+
+        result = await provider.send_export_notification(project_id, "/exports/test")
+
+        assert result is True
+        mock_bot.send_message.assert_called_once()
+        call_args = mock_bot.send_message.call_args
+        assert str(project_id) in call_args.kwargs.get("text", "")
+        assert "/exports/test" in call_args.kwargs.get("text", "")
+
+    @pytest.mark.asyncio
+    async def test_send_export_notification_not_started(self, provider):
+        """Testa notificação quando bot não iniciado."""
+        provider._started = False
+        result = await provider.send_export_notification(uuid4(), "/exports/test")
+        assert result is False
+
 
 class TestPendingApproval:
     """Testes para a dataclass PendingApproval."""

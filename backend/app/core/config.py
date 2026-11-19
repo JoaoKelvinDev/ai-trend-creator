@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -75,8 +75,8 @@ class Settings(BaseSettings):
     # ──────────────────────────────────────────────
     TELEGRAM_ENABLED: bool = Field(default=False, description="Habilitar bot Telegram")
     TELEGRAM_BOT_TOKEN: str = Field(default="", description="Token do bot Telegram")
-    TELEGRAM_ALLOWED_USER_IDS: List[int] = Field(default=[], description="User IDs permitidos")
-    TELEGRAM_ALLOWED_CHAT_IDS: List[int] = Field(default=[], description="Chat IDs permitidos")
+    TELEGRAM_ALLOWED_USER_IDS: Any = Field(default=[], description="User IDs permitidos")
+    TELEGRAM_ALLOWED_CHAT_IDS: Any = Field(default=[], description="Chat IDs permitidos")
     TELEGRAM_POLLING_ENABLED: bool = Field(default=True, description="Usar long polling")
     TELEGRAM_WEBHOOK_URL: str = Field(default="", description="URL do webhook (se não polling)")
 
@@ -107,10 +107,20 @@ class Settings(BaseSettings):
 
     @field_validator("TELEGRAM_ALLOWED_USER_IDS", "TELEGRAM_ALLOWED_CHAT_IDS", mode="before")
     @classmethod
-    def parse_ids(cls, v: Union[str, List[int]]) -> List[int]:
+    def parse_ids(cls, v: Any) -> List[int]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [int(x) for x in v if str(x).isdigit() or (str(x).startswith('-') and str(x)[1:].isdigit())]
         if isinstance(v, str):
-            return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
+            # Remove colchetes se houver [123, 456]
+            cleaned = v.strip()
+            if cleaned.startswith('[') and cleaned.endswith(']'):
+                cleaned = cleaned[1:-1]
+            return [int(x.strip()) for x in cleaned.split(",") if x.strip()]
+        if isinstance(v, int):
+            return [v]
+        return []
 
     # ──────────────────────────────────────────────
     # Propriedades computadas
