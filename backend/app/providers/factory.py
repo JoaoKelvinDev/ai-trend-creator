@@ -16,7 +16,7 @@ from backend.app.providers.llm import LLMProvider, OllamaLLMProvider, MockLLMPro
 from backend.app.providers.images import ImageProvider, TemplateImageProvider, MockImageProvider
 from backend.app.providers.speech import SpeechProvider, MockSpeechProvider, PiperSpeechProvider
 from backend.app.providers.storage import AssetStore, LocalAssetStore
-from backend.app.providers.approvals import ApprovalProvider, MockApprovalProvider
+from backend.app.providers.approvals import ApprovalProvider, MockApprovalProvider, TelegramApprovalProvider
 from backend.app.providers.publishing import Publisher, AssistedPublisher
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 class ProviderFactory:
     """Factory centralizada que instancia providers respeitando CONTROLES DE CUSTO R$ 0."""
 
-    def __init__(self):
-        self._settings = get_settings()
+    def __init__(self, settings=None):
+        self._settings = settings or get_settings()
         self._cache: dict[str, Any] = {}
 
         # Validar controles de custo na inicialização
@@ -200,13 +200,12 @@ class ProviderFactory:
             return self._cache[cache_key]
 
         if provider_type == "telegram":
-            # Telegram provider será implementado na Etapa 6
-            raise NotImplementedError("Telegram provider será implementado na Etapa 6. Use 'mock' por enquanto.")
+            provider = TelegramApprovalProvider(settings=self._settings, **kwargs)
         elif provider_type == "mock":
             provider = MockApprovalProvider(**kwargs)
         elif provider_type == "auto":
             if self._settings.TELEGRAM_ENABLED:
-                raise NotImplementedError("Telegram não implementado ainda. Use mock por enquanto.")
+                provider = TelegramApprovalProvider(settings=self._settings)
             else:
                 provider = MockApprovalProvider()
         else:
@@ -279,9 +278,15 @@ class ProviderFactory:
 _provider_factory: ProviderFactory | None = None
 
 
-def get_provider_factory() -> ProviderFactory:
+def get_provider_factory(settings=None) -> ProviderFactory:
     """Retorna instância singleton do factory."""
     global _provider_factory
     if _provider_factory is None:
-        _provider_factory = ProviderFactory()
+        _provider_factory = ProviderFactory(settings=settings)
     return _provider_factory
+
+
+def reset_provider_factory() -> None:
+    """Reseta o factory singleton (útil para testes)."""
+    global _provider_factory
+    _provider_factory = None

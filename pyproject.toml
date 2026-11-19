@@ -62,6 +62,9 @@ dependencies = [
     "python-jose[cryptography]>=3.3,<4",
     "passlib[bcrypt]>=1.7,<2",
 
+    # Telegram Bot
+    "aiogram>=3.10,<4",
+
     # Scheduling
     "apscheduler>=3.10,<4",
 ]
