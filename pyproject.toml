@@ -1,0 +1,178 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-trend-creator"
+version = "0.1.0"
+description = "Sistema automatizado de descoberta de tendências e produção de vídeos curtos com IA local"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Proprietary - Internal Use Only"}
+authors = [
+    {name = "AI Trend Creator Team", email = "team@ai-trend-creator.local"}
+]
+keywords = ["ai", "video-generation", "trend-analysis", "fastapi", "local-llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: FastAPI",
+]
+
+dependencies = [
+    # Web Framework
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.32,<0.33",
+
+    # Data Validation & Settings
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5,<3",
+    "pydantic-extra-types>=2.10,<3",
+
+    # Database
+    "sqlalchemy>=2.0,<3",
+    "alembic>=1.13,<2",
+    "psycopg[pool]>=3.2,<4",
+    "redis>=5.0,<6",
+
+    # Task Queue
+    "celery>=5.4,<6",
+
+    # HTTP Client
+    "httpx>=0.27,<0.28",
+
+    # Configuration
+    "python-dotenv>=1.0,<2",
+
+    # Logging
+    "python-json-logger>=2.0,<3",
+
+    # Utilities
+    "python-multipart>=0.0.9,<0.1",
+    "python-dateutil>=2.9,<3",
+    "tenacity>=8.5,<9",
+    "ffmpeg-python>=0.2,<1",
+
+    # Security
+    "python-jose[cryptography]>=3.3,<4",
+    "passlib[bcrypt]>=1.7,<2",
+
+    # Scheduling
+    "apscheduler>=3.10,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.23,<1",
+    "pytest-cov>=5.0,<6",
+    "pytest-mock>=3.14,<4",
+    "httpx>=0.27,<0.28",
+    "faker>=30.0,<31",
+
+    # Code Quality
+    "ruff>=0.7,<1",
+    "mypy>=1.11,<2",
+    "pre-commit>=3.8,<4",
+
+    # Type Stubs
+    "types-python-dateutil>=2.9,<3",
+    "types-passlib>=1.7,<2",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers --strict-config"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "contract: Contract tests",
+    "e2e: End-to-end tests",
+    "slow: Slow running tests",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+indent-style = "space"
+indent-width = 4
+quote-style = "double"
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "T20", # flake8-print
+    "ARG", # flake8-unused-arguments
+    "PTH", # flake8-use-pathlib
+    "ERA", # eradicate
+    "PL",  # pylint
+    "TRY", # tryceratops
+]
+ignore = [
+    "S101", # assert in tests
+    "T201", # print in tests/scripts
+    "ARG001", # unused args in test fixtures
+    "ARG002", # unused args in test fixtures
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+indent-width = 4
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_equality = true
+show_error_codes = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "scripts.*"]
+disallow_untyped_defs = false
+check_untyped_defs = false
+
+[tool.coverage.run]
+source = ["backend/app"]
+omit = ["tests/*", "migrations/*", "scripts/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.alembic]
+script_location = "migrations"
+version_locations = "migrations/versions"

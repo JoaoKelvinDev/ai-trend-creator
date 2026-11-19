@@ -1,0 +1,107 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (local storage)
+data/
+!data/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Distribution / Packaging
+*.tar.gz
+*.whl
+
+# Migrations
+migrations/
+!migrations/env.py
+!migrations/script.py.mako
+!migrations/versions/*.py
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp
+test_*.mp4
+test_*.wav
+test_*.jpg
+test_*.srt
+test_*.mp4
+test_output.wav
+test_scaled.jpg
+test_zoompan.mp4
+test_concat.mp4
+test_subproc.mp4
+test_python.mp4
+test_manual.mp4
+test_manual2.mp4
+test_thread.mp4
+test_thread2.mp4
+test_thread3.mp4
+test_manual_final.mp4
+test_subs.srt
+test_subs.ass
+test_render_input*/
+test_stage5_final/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Profiling
+*.prof
